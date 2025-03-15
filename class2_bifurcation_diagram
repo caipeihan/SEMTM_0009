@@ -1,0 +1,245 @@
+# Function to calculate bifurcation diagram data for Class-2 model
+def calculate_bifurcation_data(I_range, model_parameters=None):
+    """Calculate fixed points, their stability, and limit cycle extrema for a range of I_stim values"""
+    # Set default model parameters if none provided
+    if model_parameters is None:
+        model_parameters = {
+            'b_w': b_w,  # Using global value (-13 mV for Class-2)
+            'E_Na': E_Na,
+            'E_K': E_K,
+            'E_leak': E_leak,
+            'g_fast': g_fast,
+            'g_slow': g_slow,
+            'g_leak': g_leak,
+            'phi_w': phi_w,
+            'C': C,
+            'b_m': b_m,
+            'c_m': c_m,
+            'c_w': c_w
+        }
+    
+    # Extract model parameters
+    b_w_val = model_parameters['b_w']
+    g_fast_val = model_parameters['g_fast']
+    g_slow_val = model_parameters['g_slow']
+    g_leak_val = model_parameters['g_leak']
+    phi_w_val = model_parameters['phi_w']
+    C_val = model_parameters['C']
+    b_m_val = model_parameters['b_m']
+    c_m_val = model_parameters['c_m']
+    c_w_val = model_parameters['c_w']
+    
+    # Functions for this specific parameter set
+    def m_inf_local(V):
+        return 0.5 * (1 + np.tanh((V - b_m_val) / c_m_val))
+    
+    def w_inf_local(V):
+        return 0.5 * (1 + np.tanh((V - b_w_val) / c_w_val))
+    
+    def tau_w_local(V):
+        return 1 / np.cosh((V - b_w_val) / (2 * c_w_val))
+    
+    def v_nullcline_local(v, I):
+        return (I - g_fast_val * m_inf_local(v) * (v - E_Na) - g_leak_val * (v - E_leak)) / (g_slow_val * (v - E_K))
+    
+    # Storage for results
+    fixed_points_v = []
+    fixed_points_w = []
+    fixed_points_stability = []
+    eigenvalues_real1 = []
+    eigenvalues_real2 = []
+    eigenvalues_imag1 = []
+    eigenvalues_imag2 = []
+    limit_cycle_vmax = []
+    limit_cycle_vmin = []
+    frequencies = []
+    
+    # Calculate results for each I_stim
+    for I in I_range:
+        # Find fixed point
+        v_range = np.linspace(-80, 0, 1000)
+        w_v_nullcline = []
+        w_w_nullcline = []
+        
+        for v in v_range:
+            try:
+                w_v = v_nullcline_local(v, I)
+                w_w = w_inf_local(v)
+                if 0 <= w_v <= 1 and 0 <= w_w <= 1:
+                    w_v_nullcline.append((v, w_v))
+                    w_w_nullcline.append((v, w_w))
+            except:
+                pass
+        
+        # Find intersection(s) of nullclines
+        intersection_found = False
+        best_v, best_w, min_dist = None, None, float('inf')
+        
+        if len(w_v_nullcline) > 0 and len(w_w_nullcline) > 0:
+            w_v_nullcline = np.array(w_v_nullcline)
+            w_w_nullcline = np.array(w_w_nullcline)
+            
+            for i, (v1, w1) in enumerate(w_v_nullcline):
+                for j, (v2, w2) in enumerate(w_w_nullcline):
+                    dist = np.sqrt((v1 - v2)**2 + (w1 - w2)**2)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_v = (v1 + v2) / 2
+                        best_w = (w1 + w2) / 2
+                        intersection_found = True
+        
+        if intersection_found and min_dist < 0.01:
+            # Calculate Jacobian at fixed point
+            def jacobian_local(v, w, I):
+                # Partial derivatives
+                df1_dv = (-g_fast_val * (v - E_Na) * 0.5 / c_m_val * (1 - np.tanh((v - b_m_val) / c_m_val)**2) - 
+                          g_fast_val * m_inf_local(v) - g_leak_val) / C_val
+                df1_dw = -g_slow_val * (v - E_K) / C_val
+                dwinf_dv = 0.5 / c_w_val * (1 - np.tanh((v - b_w_val) / c_w_val)**2)
+                dtauw_dv = -0.5 / c_w_val * np.tanh((v - b_w_val) / (2 * c_w_val)) * (1 - np.tanh((v - b_w_val) / (2 * c_w_val))**2)
+                df2_dv = phi_w_val * (dwinf_dv / tau_w_local(v) - (w_inf_local(v) - w) * dtauw_dv / tau_w_local(v)**2)
+                df2_dw = -phi_w_val / tau_w_local(v)
+                return np.array([[df1_dv, df1_dw], [df2_dv, df2_dw]])
+            
+            # Calculate eigenvalues
+            J = jacobian_local(best_v, best_w, I)
+            evals = np.linalg.eigvals(J)
+            
+            # Determine stability
+            real_parts = np.real(evals)
+            stability = "Stable" if np.all(real_parts < 0) else "Unstable"
+            
+            # Store fixed point data
+            fixed_points_v.append(best_v)
+            fixed_points_w.append(best_w)
+            fixed_points_stability.append(stability)
+            eigenvalues_real1.append(np.real(evals[0]))
+            eigenvalues_real2.append(np.real(evals[1]))
+            eigenvalues_imag1.append(np.imag(evals[0]))
+            eigenvalues_imag2.append(np.imag(evals[1]))
+            
+            # If unstable, calculate limit cycle and frequency
+            if stability == "Unstable":
+                # Define model with current I_stim value and parameters
+                def model_local(t, y):
+                    V, w = y
+                    dVdt = (I - g_fast_val * m_inf_local(V) * (V - E_Na) - g_slow_val * w * (V - E_K) - g_leak_val * (V - E_leak)) / C_val
+                    dwdt = phi_w_val * (w_inf_local(V) - w) / tau_w_local(V)
+                    return [dVdt, dwdt]
+                
+                # Solve ODE for long enough to reach limit cycle
+                t_span = (0, 500)  # ms
+                t_eval = np.linspace(0, 500, 5000)  # ms
+                sol = solve_ivp(model_local, t_span, [best_v + 1, best_w], method='BDF', t_eval=t_eval)
+                
+                # Discard transient (first 200 ms)
+                idx_start = np.where(sol.t > 200)[0][0]
+                v_values = sol.y[0, idx_start:]
+                
+                # Calculate limit cycle extrema
+                limit_cycle_vmax.append(np.max(v_values))
+                limit_cycle_vmin.append(np.min(v_values))
+                
+                # Calculate frequency
+                freq = calculate_firing_frequency(v_values, sol.t[idx_start:])
+                frequencies.append(freq)
+            else:
+                # No limit cycle for stable fixed points
+                limit_cycle_vmax.append(np.nan)
+                limit_cycle_vmin.append(np.nan)
+                frequencies.append(0)
+        else:
+            # No fixed point found
+            fixed_points_v.append(np.nan)
+            fixed_points_w.append(np.nan)
+            fixed_points_stability.append("Unknown")
+            eigenvalues_real1.append(np.nan)
+            eigenvalues_real2.append(np.nan)
+            eigenvalues_imag1.append(np.nan)
+            eigenvalues_imag2.append(np.nan)
+            limit_cycle_vmax.append(np.nan)
+            limit_cycle_vmin.append(np.nan)
+            frequencies.append(np.nan)
+    
+    return {
+        'I_range': I_range,
+        'fixed_points_v': fixed_points_v,
+        'fixed_points_w': fixed_points_w,
+        'fixed_points_stability': fixed_points_stability,
+        'eigenvalues_real1': eigenvalues_real1,
+        'eigenvalues_real2': eigenvalues_real2,
+        'eigenvalues_imag1': eigenvalues_imag1,
+        'eigenvalues_imag2': eigenvalues_imag2,
+        'limit_cycle_vmax': limit_cycle_vmax,
+        'limit_cycle_vmin': limit_cycle_vmin,
+        'frequencies': frequencies
+    }
+
+# Calculate data for Class-2 model (current parameters)
+I_range_fine = np.linspace(30, 60, 100)
+class2_data = calculate_bifurcation_data(I_range_fine)
+
+# Create Figure 5: Bifurcation Diagram with I_stim as Parameter
+fig5 = plt.figure(figsize=(12, 8))
+gs = GridSpec(2, 1, height_ratios=[2, 1])
+
+# Panel A: Complete bifurcation diagram
+ax1 = fig5.add_subplot(gs[0])
+
+# Plot fixed points (color by stability)
+stable_idx = [i for i, s in enumerate(class2_data['fixed_points_stability']) if s == "Stable"]
+unstable_idx = [i for i, s in enumerate(class2_data['fixed_points_stability']) if s == "Unstable"]
+
+if stable_idx:
+    ax1.plot(I_range_fine[stable_idx], [class2_data['fixed_points_v'][i] for i in stable_idx], 
+             'b-', linewidth=2, label='Stable Fixed Point')
+
+if unstable_idx:
+    ax1.plot(I_range_fine[unstable_idx], [class2_data['fixed_points_v'][i] for i in unstable_idx], 
+             'r--', linewidth=2, label='Unstable Fixed Point')
+
+# Plot limit cycle extrema
+ax1.plot(I_range_fine, class2_data['limit_cycle_vmax'], 'g-', linewidth=1.5, label='Limit Cycle Maximum')
+ax1.plot(I_range_fine, class2_data['limit_cycle_vmin'], 'g-', linewidth=1.5)
+
+# Find Hopf bifurcation point
+hopf_indices = []
+for i in range(1, len(class2_data['fixed_points_stability'])):
+    if (class2_data['fixed_points_stability'][i-1] == "Stable" and 
+        class2_data['fixed_points_stability'][i] == "Unstable"):
+        hopf_indices.append(i)
+
+if hopf_indices:
+    hopf_idx = hopf_indices[0]
+    hopf_I = I_range_fine[hopf_idx]
+    hopf_V = class2_data['fixed_points_v'][hopf_idx]
+    ax1.plot(hopf_I, hopf_V, 'ro', markersize=8, label='Hopf Bifurcation')
+    ax1.axvline(x=hopf_I, color='r', linestyle='--', alpha=0.5)
+    ax1.text(hopf_I + 1, ax1.get_ylim()[0] + 10, f'Hopf: I ≈ {hopf_I:.2f}', 
+             rotation=90, verticalalignment='bottom')
+
+ax1.set_xlabel('I_stim (µA/cm²)')
+ax1.set_ylabel('V (mV)')
+ax1.set_title('A: Class-2 Bifurcation Diagram')
+ax1.legend(loc='upper left')
+ax1.grid(True, alpha=0.3)
+
+# Panel B: f-I curve showing discontinuity
+ax2 = fig5.add_subplot(gs[1])
+ax2.plot(I_range_fine, class2_data['frequencies'], 'b-', linewidth=2)
+ax2.set_xlabel('I_stim (µA/cm²)')
+ax2.set_ylabel('Frequency (Hz)')
+ax2.set_title('B: Class-2 f-I Curve (Discontinuous)')
+ax2.grid(True, alpha=0.3)
+
+if hopf_indices:
+    ax2.axvline(x=hopf_I, color='r', linestyle='--', alpha=0.5)
+    # Find first non-zero frequency
+    nonzero_freq_idx = next((i for i, f in enumerate(class2_data['frequencies']) if f > 0), None)
+    if nonzero_freq_idx is not None:
+        min_freq = class2_data['frequencies'][nonzero_freq_idx]
+        ax2.axhline(y=min_freq, color='g', linestyle='--', alpha=0.5)
+        ax2.text(ax2.get_xlim()[0] + 1, min_freq + 2, f'Minimum frequency: {min_freq:.1f} Hz')
+
+plt.tight_layout()
+plt.show()
