@@ -1,0 +1,72 @@
+# Create Figure 4: Mechanism of Hopf Bifurcation
+fig4 = plt.figure(figsize=(12.3, 8))
+gs = GridSpec(2, 2)
+
+# Panel A: Detailed view of nullcline intersection before bifurcation
+ax1 = fig4.add_subplot(gs[0, 0])
+plot_phase_plane(ax1, I_stim=35, v_lim=(-50, -30), w_lim=(0.05, 0.15),
+                 plot_vector_field=True, plot_trajectory=False,
+                 vector_field_density=20)
+ax1.set_title('A: Nullcline Intersection Before Bifurcation (I_stim = 35)')
+
+# Panel B: Destabilization of fixed point during Hopf bifurcation
+ax2 = fig4.add_subplot(gs[0, 1])
+plot_phase_plane(ax2, I_stim=40, v_lim=(-50, -30), w_lim=(0.05, 0.15),
+                 plot_vector_field=True, plot_trajectory=True,
+                 initial_conditions=[(-40, 0.1)], t_span=(0, 200),
+                 vector_field_density=20)
+ax2.set_title('B: Fixed Point Destabilization at Bifurcation (I_stim = 40)')
+
+# Panel C: Stability analysis for various I_stim values
+ax3 = fig4.add_subplot(gs[1, :])
+
+# Calculate eigenvalues for a range of I_stim values
+I_range = np.linspace(30, 50, 50)
+real_parts = []
+imag_parts = []
+stability = []
+
+for I in I_range:
+    fixed_point = calculate_fixed_point(I)
+    if fixed_point is not None:
+        v_fp, w_fp = fixed_point
+        jacobian = calculate_jacobian(v_fp, w_fp, I)
+        eigenvalues = get_eigenvalues(jacobian)
+        real_parts.append([np.real(eigenvalues[0]), np.real(eigenvalues[1])])
+        imag_parts.append([np.imag(eigenvalues[0]), np.imag(eigenvalues[1])])
+        stability.append(get_stability(jacobian))
+    else:
+        real_parts.append([np.nan, np.nan])
+        imag_parts.append([np.nan, np.nan])
+        stability.append("Unknown")
+
+real_parts = np.array(real_parts)
+imag_parts = np.array(imag_parts)
+
+# Plot real parts of eigenvalues
+ax3.plot(I_range, real_parts[:, 0], 'b-', label='Real part of λ₁')
+ax3.plot(I_range, real_parts[:, 1], 'r-', label='Real part of λ₂')
+ax3.axhline(y=0, color='k', linestyle='--', alpha=0.7)
+ax3.axvline(x=39.5, color='g', linestyle='--', label='Hopf Bifurcation')
+ax3.set_xlabel('I_stim (µA/cm²)')
+ax3.set_ylabel('Real part of eigenvalues')
+ax3.set_title('C: Stability Analysis - Real Parts of Eigenvalues vs I_stim')
+ax3.grid(True)
+ax3.legend()
+
+# Find the bifurcation point (where real parts cross zero)
+crossover_indices = np.where(np.diff(np.sign(real_parts[:, 0])))[0]
+if len(crossover_indices) > 0:
+    hopf_point = I_range[crossover_indices[0]]
+    ax3.text(45, 0.5, f'Hopf bifurcation at I_stim ≈ {hopf_point:.2f} µA/cm²',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+
+# Create a colorbar to indicate stability
+stable_regions = np.array([1 if "Stable" in s else 0 for s in stability])
+transition_idx = np.where(np.diff(stable_regions))[0]
+if len(transition_idx) > 0:
+    ax3.axvspan(I_range[0], I_range[transition_idx[0]], alpha=0.2, color='green', label='Stable')
+    ax3.axvspan(I_range[transition_idx[0]], I_range[-1], alpha=0.2, color='red', label='Unstable')
+
+plt.tight_layout()
+plt.show()
