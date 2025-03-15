@@ -1,0 +1,190 @@
+# Now we'll implement Class-1 and Class-3 models for comparison (Figure 6)
+
+# Define parameter sets for each class
+class1_params = {
+    'b_w': -7.0,  # Higher than Class-2 (using -7 instead of -10 as in paper for more distinct behavior)
+    'E_Na': E_Na,
+    'E_K': E_K,
+    'E_leak': E_leak,
+    'g_fast': g_fast,
+    'g_slow': g_slow,
+    'g_leak': g_leak,
+    'phi_w': phi_w,
+    'C': C,
+    'b_m': b_m,
+    'c_m': c_m,
+    'c_w': c_w
+}
+
+class2_params = {
+    'b_w': -13.0,  # Default Class-2 value
+    'E_Na': E_Na,
+    'E_K': E_K,
+    'E_leak': E_leak,
+    'g_fast': g_fast,
+    'g_slow': g_slow,
+    'g_leak': g_leak,
+    'phi_w': phi_w,
+    'C': C,
+    'b_m': b_m,
+    'c_m': c_m,
+    'c_w': c_w
+}
+
+class3_params = {
+    'b_w': -21.0,  # Lower than Class-2
+    'E_Na': E_Na,
+    'E_K': E_K,
+    'E_leak': E_leak,
+    'g_fast': g_fast,
+    'g_slow': g_slow,
+    'g_leak': g_leak,
+    'phi_w': phi_w,
+    'C': C,
+    'b_m': b_m,
+    'c_m': c_m,
+    'c_w': c_w
+}
+
+# Calculate data for all three classes
+I_range_comparison = np.linspace(10, 80, 70)
+class1_data = calculate_bifurcation_data(I_range_comparison, model_parameters=class1_params)
+# We already have class2_data (but with finer resolution)
+class3_data = calculate_bifurcation_data(I_range_comparison, model_parameters=class3_params)
+
+# Create Figure 6: Comparison Between Classes of Excitability
+fig6 = plt.figure(figsize=(12, 8))
+gs = GridSpec(2, 1, height_ratios=[2, 1])
+
+# Panel A: Bifurcation Diagrams Comparison
+ax1 = fig6.add_subplot(gs[0])
+
+# Plot Class-1 bifurcation diagram
+stable_idx1 = [i for i, s in enumerate(class1_data['fixed_points_stability']) if s == "Stable"]
+unstable_idx1 = [i for i, s in enumerate(class1_data['fixed_points_stability']) if s == "Unstable"]
+
+if stable_idx1:
+    ax1.plot(I_range_comparison[stable_idx1], [class1_data['fixed_points_v'][i] for i in stable_idx1], 
+             'b-', linewidth=2, label='Class-1 Stable Fixed Point')
+if unstable_idx1:
+    ax1.plot(I_range_comparison[unstable_idx1], [class1_data['fixed_points_v'][i] for i in unstable_idx1], 
+             'b--', linewidth=2)
+ax1.plot(I_range_comparison, class1_data['limit_cycle_vmax'], 'b-', linewidth=1.5, alpha=0.7)
+ax1.plot(I_range_comparison, class1_data['limit_cycle_vmin'], 'b-', linewidth=1.5, alpha=0.7)
+
+# Plot Class-2 bifurcation diagram (using the data we calculated for Figure 5)
+stable_idx2 = [i for i, s in enumerate(class2_data['fixed_points_stability']) if s == "Stable"]
+unstable_idx2 = [i for i, s in enumerate(class2_data['fixed_points_stability']) if s == "Unstable"]
+
+if stable_idx2:
+    ax1.plot(I_range_fine[stable_idx2], [class2_data['fixed_points_v'][i] for i in stable_idx2], 
+             'r-', linewidth=2, label='Class-2 Stable Fixed Point')
+if unstable_idx2:
+    ax1.plot(I_range_fine[unstable_idx2], [class2_data['fixed_points_v'][i] for i in unstable_idx2], 
+             'r--', linewidth=2)
+ax1.plot(I_range_fine, class2_data['limit_cycle_vmax'], 'r-', linewidth=1.5, alpha=0.7)
+ax1.plot(I_range_fine, class2_data['limit_cycle_vmin'], 'r-', linewidth=1.5, alpha=0.7)
+
+# Plot Class-3 bifurcation diagram
+stable_idx3 = [i for i, s in enumerate(class3_data['fixed_points_stability']) if s == "Stable"]
+unstable_idx3 = [i for i, s in enumerate(class3_data['fixed_points_stability']) if s == "Unstable"]
+
+if stable_idx3:
+    ax1.plot(I_range_comparison[stable_idx3], [class3_data['fixed_points_v'][i] for i in stable_idx3], 
+             'g-', linewidth=2, label='Class-3 Stable Fixed Point')
+if unstable_idx3:
+    ax1.plot(I_range_comparison[unstable_idx3], [class3_data['fixed_points_v'][i] for i in unstable_idx3], 
+             'g--', linewidth=2)
+ax1.plot(I_range_comparison, class3_data['limit_cycle_vmax'], 'g-', linewidth=1.5, alpha=0.7)
+ax1.plot(I_range_comparison, class3_data['limit_cycle_vmin'], 'g-', linewidth=1.5, alpha=0.7)
+
+# Find and mark bifurcation points
+# For Class-1 (SNIC/Saddle-Node bifurcation)
+snic_indices = []
+for i in range(1, len(class1_data['fixed_points_v'])):
+    # Look for disappearance of fixed point
+    if (not np.isnan(class1_data['fixed_points_v'][i-1]) and np.isnan(class1_data['fixed_points_v'][i])):
+        snic_indices.append(i-1)
+
+if snic_indices:
+    snic_idx = snic_indices[0]
+    snic_I = I_range_comparison[snic_idx]
+    snic_V = class1_data['fixed_points_v'][snic_idx]
+    ax1.plot(snic_I, snic_V, 'bo', markersize=8, label='SNIC Bifurcation')
+    ax1.axvline(x=snic_I, color='b', linestyle='--', alpha=0.5)
+    ax1.text(snic_I + 1, ax1.get_ylim()[0] + 10, f'SNIC: I ≈ {snic_I:.2f}', 
+             rotation=90, verticalalignment='bottom')
+
+# For Class-2 (Hopf bifurcation) - we already identified it
+if hopf_indices:
+    hopf_I = I_range_fine[hopf_idx]
+    hopf_V = class2_data['fixed_points_v'][hopf_idx]
+    ax1.plot(hopf_I, hopf_V, 'ro', markersize=8, label='Hopf Bifurcation')
+    ax1.axvline(x=hopf_I, color='r', linestyle='--', alpha=0.5)
+
+# For Class-3 (QSC is not a bifurcation, but we can mark the point where any spiking occurs)
+# This is more complex to detect automatically, so we'll use a threshold approach
+class3_spikes = [i for i, f in enumerate(class3_data['frequencies']) if f > 0]
+if class3_spikes:
+    qsc_idx = class3_spikes[0]
+    qsc_I = I_range_comparison[qsc_idx]
+    qsc_V = class3_data['fixed_points_v'][qsc_idx]
+    ax1.plot(qsc_I, qsc_V, 'go', markersize=8, label='QSC Region Start')
+    ax1.axvline(x=qsc_I, color='g', linestyle='--', alpha=0.5)
+    ax1.text(qsc_I + 1, ax1.get_ylim()[0] + 10, f'QSC: I ≈ {qsc_I:.2f}', 
+             rotation=90, verticalalignment='bottom')
+
+ax1.set_xlabel('I_stim (µA/cm²)')
+ax1.set_ylabel('V (mV)')
+ax1.set_title('A: Bifurcation Diagrams for Three Classes of Excitability')
+ax1.legend(loc='upper left')
+ax1.grid(True, alpha=0.3)
+
+# Panel B: f-I Curves Comparison
+ax2 = fig6.add_subplot(gs[1])
+ax2.plot(I_range_comparison, class1_data['frequencies'], 'b-', linewidth=2, label='Class-1')
+ax2.plot(I_range_fine, class2_data['frequencies'], 'r-', linewidth=2, label='Class-2')
+ax2.plot(I_range_comparison, class3_data['frequencies'], 'g-', linewidth=2, label='Class-3')
+
+ax2.set_xlabel('I_stim (µA/cm²)')
+ax2.set_ylabel('Frequency (Hz)')
+ax2.set_title('B: f-I Curves for Three Classes of Excitability')
+ax2.legend(loc='upper left')
+ax2.grid(True, alpha=0.3)
+
+# Add vertical lines for bifurcation points
+if snic_indices:
+    ax2.axvline(x=snic_I, color='b', linestyle='--', alpha=0.5)
+if hopf_indices:
+    ax2.axvline(x=hopf_I, color='r', linestyle='--', alpha=0.5)
+if class3_spikes:
+    ax2.axvline(x=qsc_I, color='g', linestyle='--', alpha=0.5)
+
+plt.tight_layout()
+plt.show()
+
+# Create Table 1: Parameter Sets and Their Effects
+parameter_table = {
+    'Parameter': ['b_w', 'g_fast', 'g_slow', 'phi_w'],
+    'Default Value (Class-2)': ['-13 mV', '20 mS/cm²', '20 mS/cm²', '0.15'],
+    'Effect of Increase': ['Moves toward Class-1', 'Moves toward Class-1', 'Moves toward Class-3', 'Increases firing frequency'],
+    'Effect of Decrease': ['Moves toward Class-3', 'Moves toward Class-3', 'Moves toward Class-1', 'Decreases firing frequency'],
+    'Biological Interpretation': [
+        'Voltage-dependency of slow outward current activation',
+        'Conductance of fast inward current (Na⁺)',
+        'Conductance of slow outward current (K⁺)',
+        'Kinetics of slow current activation'
+    ]
+}
+
+# Display as markdown table
+from IPython.display import Markdown, display
+
+table_md = "## Table 1: Parameter Sets and Their Effects on Model Behavior\n\n"
+table_md += "| Parameter | Default Value (Class-2) | Effect of Increase | Effect of Decrease | Biological Interpretation |\n"
+table_md += "|-----------|------------------------|-------------------|-------------------|---------------------------|\n"
+
+for i in range(len(parameter_table['Parameter'])):
+    table_md += f"| {parameter_table['Parameter'][i]} | {parameter_table['Default Value (Class-2)'][i]} | {parameter_table['Effect of Increase'][i]} | {parameter_table['Effect of Decrease'][i]} | {parameter_table['Biological Interpretation'][i]} |\n"
+
+display(Markdown(table_md))
