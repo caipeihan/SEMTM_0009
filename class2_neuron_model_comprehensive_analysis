@@ -1,0 +1,257 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+from matplotlib.gridspec import GridSpec
+import warnings
+warnings.filterwarnings('ignore')
+plt.style.use('ggplot')
+
+# For reproducibility
+np.random.seed(42)
+
+# Model parameters (from Sejnowski 2008, p.2-3)
+# Class 2 model with b_w = -13 mV
+E_Na = 50.0      # mV
+E_K = -100.0     # mV
+E_leak = -70.0   # mV
+g_fast = 20.0    # mS/cm²
+g_slow = 20.0    # mS/cm²
+g_leak = 2.0     # mS/cm²
+phi_w = 0.15     # Dimensionless
+C = 2.0          # µF/cm²
+b_m = -1.2       # mV
+c_m = 18.0       # mV
+b_w = -13.0      # mV (Class 2 model)
+c_w = 10.0       # mV
+
+# Activation functions
+def m_inf(V):
+    """Steady state activation of fast current"""
+    return 0.5 * (1 + np.tanh((V - b_m) / c_m))
+
+def w_inf(V):
+    """Steady state activation of slow current"""
+    return 0.5 * (1 + np.tanh((V - b_w) / c_w))
+
+def tau_w(V):
+    """Time constant for slow current activation"""
+    return 1 / np.cosh((V - b_w) / (2 * c_w))
+
+print(f"Class-2 Model Parameters:")
+print(f"E_Na = {E_Na} mV, E_K = {E_K} mV, E_leak = {E_leak} mV")
+print(f"g_fast = {g_fast} mS/cm², g_slow = {g_slow} mS/cm², g_leak = {g_leak} mS/cm²")
+print(f"φ_w = {phi_w}, C = {C} µF/cm²")
+print(f"b_m = {b_m} mV, c_m = {c_m} mV, b_w = {b_w} mV, c_w = {c_w} mV")
+
+
+t_span = (0, 300)  # ms
+t_eval = np.linspace(0, 300, 3000)  # ms
+V0 = -70.0  # mV (resting potential)
+w0 = 0.0    # dimensionless (initial recovery variable)
+y0 = [V0, w0]
+
+# I_stim values for Figure 1
+# Values chosen to demonstrate subthreshold, threshold and suprathreshold responses
+I_stim_values = [38, 40, 45]  # µA/cm²
+
+# Storage for solutions
+solutions = []
+
+for I_stim in I_stim_values:
+    def model(t, y):
+        V, w = y
+        dVdt = (I_stim - g_fast * m_inf(V) * (V - E_Na) - g_slow * w * (V - E_K) - g_leak * (V - E_leak)) / C
+        dwdt = phi_w * (w_inf(V) - w) / tau_w(V)
+        return [dVdt, dwdt]
+    
+    sol = solve_ivp(
+        model,
+        t_span,
+        y0,
+        method='BDF',
+        t_eval=t_eval
+    )
+    solutions.append(sol)
+
+fig = plt.figure(figsize=(12, 10))
+gs = GridSpec(6, 1, height_ratios=[1, 1, 1, 1, 1, 1])
+
+ax1 = fig.add_subplot(gs[0])
+ax1.plot(solutions[0].t, solutions[0].y[0], label=f'I_stim = {I_stim_values[0]} µA/cm²', color='red')
+ax1.set_ylabel('V (mV)')
+ax1.set_title('A: Subthreshold Response')
+ax1.grid(True)
+ax1.legend()
+
+ax2 = fig.add_subplot(gs[1], sharex=ax1)
+ax2.plot(solutions[1].t, solutions[1].y[0], label=f'I_stim = {I_stim_values[1]} µA/cm²', color='blue')
+ax2.set_ylabel('V (mV)')
+ax2.set_title('B: Threshold Response')
+ax2.grid(True)
+ax2.legend()
+
+ax3 = fig.add_subplot(gs[2], sharex=ax1)
+ax3.plot(solutions[2].t, solutions[2].y[0], label=f'I_stim = {I_stim_values[2]} µA/cm²', color='purple')
+ax3.set_ylabel('V (mV)')
+ax3.set_title('C: Suprathreshold Response')
+ax3.grid(True)
+ax3.legend()
+
+# Plot w for different I_stim in separate subplots
+ax4 = fig.add_subplot(gs[3], sharex=ax1)
+ax4.plot(solutions[0].t, solutions[0].y[1], color='red')
+ax4.set_ylabel('w')
+ax4.set_title(f'D1: Recovery Variable (I_stim = {I_stim_values[0]} µA/cm²)')
+ax4.grid(True)
+
+ax5 = fig.add_subplot(gs[4], sharex=ax1)
+ax5.plot(solutions[1].t, solutions[1].y[1], color='blue')
+ax5.set_ylabel('w')
+ax5.set_title(f'D2: Recovery Variable (I_stim = {I_stim_values[1]} µA/cm²)')
+ax5.grid(True)
+
+ax6 = fig.add_subplot(gs[5], sharex=ax1)
+ax6.plot(solutions[2].t, solutions[2].y[1], color='purple')
+ax6.set_xlabel('Time (ms)')
+ax6.set_ylabel('w')
+ax6.set_title(f'D3: Recovery Variable (I_stim = {I_stim_values[2]} µA/cm²)')
+ax6.grid(True)
+
+plt.tight_layout()
+plt.show()
+
+
+# Figure 2: Parameter Sensitivity Analysis
+I_stim = 50
+b_w_values = [-11, -13, -15]  # Keep the same values but with higher I_stim
+phi_w_values = [0.1, 0.15, 0.2]  # Keep the same values
+g_fast_values = [18, 20, 22]  # Narrower range around the default value
+
+# Storage for solutions
+b_w_solutions = []
+phi_w_solutions = []
+g_fast_solutions = []
+
+for b_w_val in b_w_values:
+    # Redefine activation functions with new b_w
+    def w_inf_modified(V):
+        return 0.5 * (1 + np.tanh((V - b_w_val) / c_w))
+
+    def tau_w_modified(V):
+        return 1 / np.cosh((V - b_w_val) / (2 * c_w))
+    
+    # Redefined model with current parameters
+    def model(t, y):
+        V, w = y
+        dVdt = (I_stim - g_fast * m_inf(V) * (V - E_Na) - g_slow * w * (V - E_K) - g_leak * (V - E_leak)) / C
+        dwdt = phi_w * (w_inf_modified(V) - w) / tau_w_modified(V)
+        return [dVdt, dwdt]
+    
+    sol = solve_ivp(
+        model,
+        t_span,
+        y0,
+        method='BDF',
+        t_eval=t_eval
+    )
+    b_w_solutions.append(sol)
+
+# Effect of varying phi_w
+for phi_w_val in phi_w_values:
+    def model(t, y):
+        V, w = y
+        dVdt = (I_stim - g_fast * m_inf(V) * (V - E_Na) - g_slow * w * (V - E_K) - g_leak * (V - E_leak)) / C
+        dwdt = phi_w_val * (w_inf(V) - w) / tau_w(V)
+        return [dVdt, dwdt]
+    
+    sol = solve_ivp(
+        model,
+        t_span,
+        y0,
+        method='BDF',
+        t_eval=t_eval
+    )
+    phi_w_solutions.append(sol)
+
+# Effect of varying g_fast
+for g_fast_val in g_fast_values:
+    def model(t, y):
+        V, w = y
+        dVdt = (I_stim - g_fast_val * m_inf(V) * (V - E_Na) - g_slow * w * (V - E_K) - g_leak * (V - E_leak)) / C
+        dwdt = phi_w * (w_inf(V) - w) / tau_w(V)
+        return [dVdt, dwdt]
+    
+    sol = solve_ivp(
+        model,
+        t_span,
+        y0,
+        method='BDF',
+        t_eval=t_eval
+    )
+    g_fast_solutions.append(sol)
+
+fig = plt.figure(figsize=(12, 10))
+gs = GridSpec(3, 1)
+
+ax1 = fig.add_subplot(gs[0])
+for i, b_w_val in enumerate(b_w_values):
+    ax1.plot(b_w_solutions[i].t, b_w_solutions[i].y[0], label=f'b_w = {b_w_val} mV')
+ax1.set_ylabel('V (mV)')
+ax1.set_title('A: Effect of Varying b_w')
+ax1.grid(True)
+ax1.legend()
+
+ax2 = fig.add_subplot(gs[1], sharex=ax1)
+for i, phi_w_val in enumerate(phi_w_values):
+    ax2.plot(phi_w_solutions[i].t, phi_w_solutions[i].y[0], label=f'phi_w = {phi_w_val}')
+ax2.set_ylabel('V (mV)')
+ax2.set_title('B: Effect of Varying Time Constant (phi_w)')
+ax2.grid(True)
+ax2.legend()
+
+ax3 = fig.add_subplot(gs[2], sharex=ax1)
+for i, g_fast_val in enumerate(g_fast_values):
+    ax3.plot(g_fast_solutions[i].t, g_fast_solutions[i].y[0], label=f'g_fast = {g_fast_val} mS/cm²')
+ax3.set_xlabel('Time (ms)')
+ax3.set_ylabel('V (mV)')
+ax3.set_title('C: Effect of Varying g_fast')
+ax3.grid(True)
+ax3.legend()
+
+plt.tight_layout()
+plt.show()
+
+# firing frequencies for each simulation
+def calculate_firing_frequency(v_trace, t, threshold=0):
+    spike_indices = np.where((v_trace[:-1] < threshold) & (v_trace[1:] >= threshold))[0]
+    spike_times = t[spike_indices]
+    
+    if len(spike_times) < 2:
+        return 0  # No spikes or only one spike
+    
+    # average interspike interval and convert to frequency
+    isi = np.mean(np.diff(spike_times))
+    frequency = 1000 / isi  # Convert to Hz (from ms)
+    return frequency
+
+# frequencies for all parameter variations
+b_w_frequencies = []
+phi_w_frequencies = []
+g_fast_frequencies = []
+
+for sol in b_w_solutions:
+    freq = calculate_firing_frequency(sol.y[0], sol.t)
+    b_w_frequencies.append(freq)
+
+for sol in phi_w_solutions:
+    freq = calculate_firing_frequency(sol.y[0], sol.t)
+    phi_w_frequencies.append(freq)
+
+for sol in g_fast_solutions:
+    freq = calculate_firing_frequency(sol.y[0], sol.t)
+    g_fast_frequencies.append(freq)
+
+print("Firing frequencies (Hz):")
+print(f"b_w values {b_w_values}: frequencies {b_w_frequencies}")
+print(f"phi_w values {phi_w_values}: frequencies {phi_w_frequencies}")
+print(f"g_fast values {g_fast_values}: frequencies {g_fast_frequencies}")
