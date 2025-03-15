@@ -1,0 +1,194 @@
+# calculating nullclines
+def v_nullcline(v, I_stim):
+    # Solve for w where dV/dt = 0
+    return (I_stim - g_fast * m_inf(v) * (v - E_Na) - g_leak * (v - E_leak)) / (g_slow * (v - E_K))
+
+def calculate_fixed_point(I_stim, v_range=(-80, 0), step=0.1, tolerance=1e-4):
+    v_vals = np.arange(v_range[0], v_range[1], step)
+    
+    min_diff = float('inf')
+    fixed_point = None
+    
+    for v in v_vals:
+        w_v = v_nullcline(v, I_stim)
+        w_w = w_inf(v)
+        diff = abs(w_v - w_w)
+        
+        if diff < min_diff:
+            min_diff = diff
+            fixed_point = (v, w_v)
+    
+    if min_diff < tolerance:
+        return fixed_point
+    else:
+        print(f"Warning: Fixed point may not be accurate. Min difference: {min_diff}")
+        return fixed_point
+
+# determine stability of fixed point
+def calculate_jacobian(v, w, I_stim):
+    """Calculate the Jacobian matrix at point (v, w)"""
+    # Partial derivatives
+    # df1/dv (where f1 is dv/dt)
+    df1_dv = (-g_fast * (v - E_Na) * 0.5 / c_m * (1 - np.tanh((v - b_m) / c_m)**2) - 
+              g_fast * m_inf(v) - g_leak) / C
+    
+    # df1/dw
+    df1_dw = -g_slow * (v - E_K) / C
+    
+    # df2/dv (where f2 is dw/dt)
+    dwinf_dv = 0.5 / c_w * (1 - np.tanh((v - b_w) / c_w)**2)
+    dtauw_dv = -0.5 / c_w * np.tanh((v - b_w) / (2 * c_w)) * (1 - np.tanh((v - b_w) / (2 * c_w))**2)
+    df2_dv = phi_w * (dwinf_dv / tau_w(v) - (w_inf(v) - w) * dtauw_dv / tau_w(v)**2)
+    
+    # df2/dw
+    df2_dw = -phi_w / tau_w(v)
+    
+    return np.array([[df1_dv, df1_dw], [df2_dv, df2_dw]])
+
+def get_stability(jacobian):
+    eigenvalues = np.linalg.eigvals(jacobian)
+    real_parts = np.real(eigenvalues)
+    
+    if np.all(real_parts < 0):
+        return "Stable Node/Focus"
+    elif np.all(real_parts > 0):
+        return "Unstable Node/Focus"
+    else:
+        return "Saddle Point"
+
+def get_eigenvalues(jacobian):
+    return np.linalg.eigvals(jacobian)
+
+def plot_phase_plane(ax, I_stim, plot_nullclines=True, plot_vector_field=True, 
+                     plot_trajectory=False, initial_conditions=None,
+                     t_span=(0, 100), v_lim=(-80, 40), w_lim=(0, 0.5),
+                     vector_field_density=20, vector_field_scale=0.005,
+                     trajectory_color='blue', fixed_point_marker='x',
+                     plot_fixed_point=True):
+    v_range = np.linspace(v_lim[0], v_lim[1], 1000)
+    w_range = np.linspace(w_lim[0], w_lim[1], 1000)
+    
+    # nullclines
+    v_null = []
+    for v in v_range:
+        try:
+            w = v_nullcline(v, I_stim)
+            if w_lim[0] <= w <= w_lim[1]:
+                v_null.append((v, w))
+        except:
+            pass  # Skip points where the nullcline is undefined
+    
+    v_null = np.array(v_null)
+    w_null = [(v, w_inf(v)) for v in v_range if w_lim[0] <= w_inf(v) <= w_lim[1]]
+    w_null = np.array(w_null)
+    
+    if plot_nullclines and len(v_null) > 0:
+        ax.plot(v_null[:, 0], v_null[:, 1], 'r-', label='V-nullcline')
+    if plot_nullclines and len(w_null) > 0:
+        ax.plot(w_null[:, 0], w_null[:, 1], 'g-', label='w-nullcline')
+    
+    fixed_point = calculate_fixed_point(I_stim)
+    if fixed_point is not None and plot_fixed_point:
+        v_fp, w_fp = fixed_point
+        jacobian = calculate_jacobian(v_fp, w_fp, I_stim)
+        stability = get_stability(jacobian)
+        eigenvalues = get_eigenvalues(jacobian)
+        
+        ax.plot(v_fp, w_fp, fixed_point_marker, markersize=10, color='black')
+        
+        ax.text(0.05, 0.95, f"I_stim = {I_stim} µA/cm²\n{stability}\nλ₁ = {eigenvalues[0]:.3f}, λ₂ = {eigenvalues[1]:.3f}",
+                transform=ax.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+    
+    if plot_vector_field:
+        v_mesh, w_mesh = np.meshgrid(
+            np.linspace(v_lim[0], v_lim[1], vector_field_density),
+            np.linspace(w_lim[0], w_lim[1], vector_field_density)
+        )
+        
+        dv = np.zeros_like(v_mesh)
+        dw = np.zeros_like(w_mesh)
+        
+        for i in range(v_mesh.shape[0]):
+            for j in range(v_mesh.shape[1]):
+                v = v_mesh[i, j]
+                w = w_mesh[i, j]
+                
+                dv[i, j] = (I_stim - g_fast * m_inf(v) * (v - E_Na) - g_slow * w * (v - E_K) - g_leak * (v - E_leak)) / C
+                dw[i, j] = phi_w * (w_inf(v) - w) / tau_w(v)
+        
+        magnitude = np.sqrt(dv**2 + dw**2)
+        magnitude[magnitude == 0] = 1  # Avoid division by zero
+        dv = dv / magnitude
+        dw = dw / magnitude
+        
+        ax.quiver(v_mesh, w_mesh, dv, dw, scale=vector_field_scale, scale_units='xy', 
+                  width=0.002, color='grey', alpha=0.3)
+    
+    if plot_trajectory and initial_conditions is not None:
+        for ic in initial_conditions:
+            V0, w0 = ic
+            
+            def model(t, y):
+                V, w = y
+                dVdt = (I_stim - g_fast * m_inf(V) * (V - E_Na) - g_slow * w * (V - E_K) - g_leak * (V - E_leak)) / C
+                dwdt = phi_w * (w_inf(V) - w) / tau_w(V)
+                return [dVdt, dwdt]
+            
+            sol = solve_ivp(model, t_span, [V0, w0], method='BDF', 
+                            dense_output=True, t_eval=np.linspace(t_span[0], t_span[1], 10000))
+            
+            ax.plot(sol.y[0], sol.y[1], color=trajectory_color, lw=1.5, alpha=0.7)
+            ax.plot(V0, w0, 'o', color=trajectory_color, markersize=4)
+    
+    ax.set_xlabel('V (mV)')
+    ax.set_ylabel('w')
+    ax.grid(True, alpha=0.3)
+
+# Figure 3: Phase Plane Dynamics at Rest and During Stimulation
+fig3 = plt.figure(figsize=(12, 8))
+gs = GridSpec(2, 2)
+
+# Panel A: Phase plane with nullclines at rest (no stimulation)
+ax1 = fig3.add_subplot(gs[0, 0])
+plot_phase_plane(ax1, I_stim=0, v_lim=(-80, 40), w_lim=(0, 0.3),
+                 plot_vector_field=True, plot_trajectory=False)
+ax1.set_title('A: Phase Plane at Rest')
+
+# Panel B: Phase plane during threshold stimulation showing limit cycle formation
+ax2 = fig3.add_subplot(gs[0, 1])
+plot_phase_plane(ax2, I_stim=40, v_lim=(-80, 40), w_lim=(0, 0.3),
+                 plot_vector_field=True, plot_trajectory=True, 
+                 initial_conditions=[(-70, 0)], t_span=(0, 200))
+ax2.set_title('B: Phase Plane at Threshold Stimulation')
+
+# Panel C: Trajectories for different initial conditions
+ax3 = fig3.add_subplot(gs[1, 0])
+initial_conditions = [(-70, 0), (-60, 0.1), (-50, 0.2), (-40, 0.05), (-30, 0.15)]
+plot_phase_plane(ax3, I_stim=45, v_lim=(-80, 40), w_lim=(0, 0.3),
+                 plot_vector_field=False, plot_trajectory=True, 
+                 initial_conditions=initial_conditions, t_span=(0, 200),
+                 trajectory_color='blue')
+ax3.set_title('C: Multiple Trajectories (I_stim = 45 µA/cm²)')
+
+# Panel D: Overlay of trajectories for different stimulation intensities
+ax4 = fig3.add_subplot(gs[1, 1])
+I_stim_values = [35, 40, 45, 50]
+colors = ['purple', 'blue', 'green', 'red']
+
+for i, I_stim in enumerate(I_stim_values):
+    plot_phase_plane(ax4, I_stim=I_stim, v_lim=(-80, 40), w_lim=(0, 0.3),
+                     plot_nullclines=False, plot_vector_field=False, 
+                     plot_trajectory=True, initial_conditions=[(-70, 0)], 
+                     t_span=(0, 300), trajectory_color=colors[i],
+                     plot_fixed_point=False)
+
+custom_lines = [plt.Line2D([0], [0], color=colors[i], lw=2) for i in range(len(I_stim_values))]
+ax4.legend(custom_lines, [f'I_stim = {I_stim}' for I_stim in I_stim_values], loc='upper right')
+
+plot_phase_plane(ax4, I_stim=40, v_lim=(-80, 40), w_lim=(0, 0.3),
+                 plot_nullclines=True, plot_vector_field=False, 
+                 plot_trajectory=False, plot_fixed_point=False)
+ax4.set_title('D: Effect of Varying I_stim on Trajectories')
+
+plt.tight_layout()
+plt.show()
